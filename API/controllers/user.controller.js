@@ -1,131 +1,97 @@
-const mongoose = require('mongoose');
-const jwt = require('jsonwebtoken');
-const bcrypt = require('bcryptjs');
-const config = require('../config/config');
-const RequestStatus = require('../utils/requestStatus');
-const TokenBlacklist = require('../blacklist-token/blacklist.model');
-var User = require('../models/user.model');
-
-function generateToken(params = {}) {
-    return jwt.sign({ params }, config.secret, {
-        expiresIn: config.timer
-    });
-};
-
+const mongoose = require("mongoose");
+const User = require("../models/user.model");
+const bcrypt = require("bcrypt");
+const jwt = require("jsonwebtoken");
+const config = require("../config/config");
 
 exports.getUsers = async (req, res) => {
-    try{
-        let users = await User.find({});
+  try {
+    const users = await User.find();
+    if (users) return res.status(202).json(users);
 
-        if(users) {
-            return res.status(202).json(users);
-        }else {
-            return res.status(400).json({message: 'An error has occured!'});
-        } 
-        
-        
-    }catch (error) {
-        return res.status('400').send(error);
-    }
-
+    res.status(400).json({ error: "An error has occurred!" });
+  } catch (error) {
+    res.status(400).json({ error });
+  }
 };
 
 exports.getUser = async (req, res) => {
-    try {
-        let user = await User.findById({_id: req.params.id});
+  const { id } = req.params;
 
-        if(user) {
-            return res.status(202).json(user);
-        }else {
-            return res.status(400).json({message:'An error has occured.'});
-        }
-       
-    } catch (error) {
-        return res.status(400).send({message: "User not found."});
-    }
+  try {
+    const user = await User.findById(id);
+    if (user) return res.status(200).json(user);
+
+    res.status(400).json({ error: "An error has occurred!" });
+  } catch (error) {
+    res.status(400).json({ error });
+  }
 };
 
-
 exports.createUser = async (req, res) => {
-    try {
-        var user = req.body;
+  const user = req.body;
 
-        const newUser = await User.create(user);
-        newUser.password = undefined;
+  try {
+    const newUser = await User.create(user);
 
-        if(newUser) {
-            return res.status(201).send({ message: "User created!", data: newUser });
-        } else {
-            return res.status(400).send({ message: "An error has occured! User not created!" });
-        }
-    } catch (error) {
-        return res.status(400).send(error.message);
-    }
+    newUser.password = undefined;
+
+    if (newUser) return res.status(200).json(newUser);
+
+    res.status(400).json("An error has occurred!");
+  } catch (error) {
+    res.status(400).json({ error });
+  }
 };
 
 exports.updateUser = async (req, res) => {
-    try {
-        const userId = req.params.id;
+  const { id } = req.params;
+  const user = req.body;
 
-        const user = req.body;
+  try {
+    const updatedUser = await User.findByIdAndUpdate(
+      mongoose.Types.ObjectId(id),
+      { $set: user },
+      { new: true }
+    );
 
-        const userUpdated = await User.findByIdAndUpdate(mongoose.Types.ObjectId(usertId), { $set: user }, { new: true });
+    if (updatedUser) return res.json(updatedUser);
 
-        if (userUpdated) {
-            return res.status(202).json({ message: "User Updated", data: userUpdated });
-        } else {
-            return res.status(400).json({ message: "An error has occured! User not updated!"});
-        }
-
-    } catch (error) {
-        return res.status(400).json(error.message);
-    }
+    return res.status(400).json("An error has occurred!");
+  } catch (error) {
+    res.status(400).json({ error });
+  }
 };
 
 exports.deleteUser = async (req, res) => {
-    try {
-        const userId = req.params.id;
-        const deletedUser = await User.deleteOne({ _id: userId });
+  const { id } = req.params;
 
-        if (deletedUser.n > 0) {
-            return res.status(200).json({ message: "User deleted" });
-        } else {
-            return res.status(400).json({ message: "Sorry, user not deleted!" });
-        }
-    } catch (error) {
-        return res.status(400).send(error);
-    }
+  try {
+    const deletedUser = await User.deleteOne({ _id: id });
+    if (!!deletedUser.n) return res.json(deletedUser);
+
+    return res.status(400).json("An error has occurred!");
+  } catch (error) {
+    res.status(400).json({ error });
+  }
 };
 
+const generateToken = (params = {}) => {
+  return jwt.sign({ params }, config.key, { expiresIn: config.expiresIn });
+};
 
 exports.login = async (req, res) => {
-    try {
-        const { email, password } = req.body;
-        const user = await User.findOne({ email }).select('+password');
+  const { email, password } = req.body;
 
-        if (!user) {
-            return res.status(404).send({ message: "User not found!" });
-        }
-        if (!await bcrypt.compare(password, user.password)) {
-            return res.status(400).send({ message: 'Invalid password! Try again!' });
-        }
-        user.password = undefined;
-        return res.send({ message: "Welcome "+ user.email, data: user, token: generateToken({ id: user.id }) });
-    } catch (err) {
-        return res.status(400).send(err.message);
-    }
-};
+  const user = await User.findOne({ email }).select("+password");
+  if (!user) return res.status(404).json("User not found!");
 
-exports.logout = async (req, res) => {
-    const token = req.headers.authorization;
+  if (!(await bcrypt.compare(password, user.password)))
+    return res.status(400).json("Invalid password!");
 
-    if (!token)
-        return res.status(RequestStatus.BAD_REQUEST).json({ message: "Nenhum token fornecido!" });
+  user.password = undefined;
 
-    if (!await TokenBlacklist.findOne({ token: token })) {
-        await TokenBlacklist.create({ token });
-        return res.status(RequestStatus.OK).json({ message: "Logout realizado!" });
-    } else {
-        return res.status(RequestStatus.NOT_MODIFIED).json({ message: "Logout já realizado!" });
-    }
+  const token = generateToken({ id: user._id });
+
+  return res.send(token);
 };
